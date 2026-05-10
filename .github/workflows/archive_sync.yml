@@ -1,4 +1,4 @@
-name: Sync Historical Archive 2022
+name: Sync Historical Archive 2022-01
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ jobs:
         with:
           fetch-depth: 1
 
-      # 第二步：只稀疏下载外部 CNEMC 仓库中 2022 年全年数据
-      - name: Sparse clone external CNEMC archive for 2022
+      # 第一步：只稀疏下载外部 CNEMC 仓库中 2022-01 数据
+      - name: Sparse clone external CNEMC archive for 2022-01
         run: |
           set -e
 
@@ -25,7 +25,7 @@ jobs:
 
           rm -rf /tmp/cnemc_repo
 
-          echo "Start sparse clone external CNEMC repo, only Archive/2022-*"
+          echo "Start sparse clone external CNEMC repo, only Archive/2022-01-*"
 
           git clone \
             --depth=1 \
@@ -42,9 +42,9 @@ jobs:
 
           echo "Start checkout sparse files..."
           checkout_start=$(date +%s)
-          
+
           git checkout --progress
-          
+
           checkout_end=$(date +%s)
           echo "Checkout sparse files finished, cost $((checkout_end - checkout_start)) seconds."
 
@@ -53,14 +53,17 @@ jobs:
           echo "External repo size:"
           du -sh /tmp/cnemc_repo || true
 
-          echo "External Archive/2022-* folder count:"
-          find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "2022-*" | wc -l || true
+          echo "External Archive/2022-01-* folder count:"
+          find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "2022-01-*" | wc -l || true
+
+          echo "External Archive/2022-01-* file count:"
+          find /tmp/cnemc_repo/Archive -type f -path "*/2022-01-*/*" | wc -l || true
 
           end_ts=$(date +%s)
-          echo "Sparse clone external CNEMC finished, cost $((end_ts - start_ts)) seconds."
+          echo "Sparse clone external CNEMC for 2022-01 finished, cost $((end_ts - start_ts)) seconds."
 
-      # 第三步：同步 2022 年数据，并打印进度
-      - name: Sync external CNEMC archive for 2022
+      # 第二步：同步 2022-01 数据，并打印进度
+      - name: Sync external CNEMC archive for 2022-01
         run: |
           set -e
 
@@ -74,17 +77,17 @@ jobs:
           shopt -s nullglob
 
           mapfile -t dirs < <(
-            find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "2022-*" -printf "%f\n" | sort
+            find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "2022-01-*" -printf "%f\n" | sort
           )
 
           total=${#dirs[@]}
-          echo "Found $total external CNEMC date folders for 2022."
+          echo "Found $total external CNEMC date folders for 2022-01."
 
           i=0
           for base in "${dirs[@]}"; do
             i=$((i + 1))
 
-            if [[ "$base" >= "$start_date" && "$base" < "$end_date" ]]; then
+            if [[ ! "$base" < "$start_date" && "$base" < "$end_date" ]]; then
               echo "[$i/$total] Syncing $base"
 
               mkdir -p "Archive/CNEMC/$base"
@@ -104,10 +107,10 @@ jobs:
           du -sh Archive/CNEMC || true
 
           end_ts=$(date +%s)
-          echo "Sync external archive for 2022 finished, cost $((end_ts - start_ts)) seconds."
+          echo "Sync external archive for 2022-01 finished, cost $((end_ts - start_ts)) seconds."
 
-      # 再提交第二步
-      - name: Commit external archive for 2022
+      # 第三步：提交并推送 2022-01 数据
+      - name: Commit external archive for 2022-01
         run: |
           set -e
 
@@ -125,12 +128,12 @@ jobs:
           echo "Staged file count: $changed_count"
 
           if git diff --cached --quiet; then
-            echo "No external archive changes for 2022."
+            echo "No external archive changes for 2022-01."
           else
-            git commit -m "Sync CNEMC archive for 2022"
+            git commit -m "Sync CNEMC archive for 2022-01"
             git pull --rebase
             git push --progress
           fi
 
           end_ts=$(date +%s)
-          echo "Commit external archive for 2022 finished, cost $((end_ts - start_ts)) seconds."
+          echo "Commit external archive for 2022-01 finished, cost $((end_ts - start_ts)) seconds."
