@@ -1,9 +1,7 @@
-name: Sync Historical Archive
+name: Sync Historical Archive Small Batch
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "0 2 1 * *"   # 每月1日 02:00 UTC 自动执行，可按需开启
 
 permissions:
   contents: write
@@ -16,13 +14,14 @@ jobs:
       - name: Checkout current repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      # 第一次：整理当前仓库 Archive 下已有日期文件夹到 Archive/CNEMC
+      # 第一步：当前仓库已有 Archive 日期文件夹移动到 Archive/CNEMC
       - name: Move current Archive date folders into Archive/CNEMC
         run: |
-          mkdir -p Archive/CNEMC
+          set -e
 
+          mkdir -p Archive/CNEMC
           shopt -s nullglob
 
           for d in Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
@@ -37,34 +36,66 @@ jobs:
             fi
           done
 
-      # 第二次：同步其他仓库的 Archive 数据到当前仓库 Archive/CNEMC
-      - name: Sync external CNEMC archive
+      # 先提交第一步，避免所有变更堆到最后
+      - name: Commit moved current archive
         run: |
-          rm -rf /tmp/cnemc_repo
+          set -e
 
-          git clone --depth=1 https://github.com/HeQinWill/CNEMC.git /tmp/cnemc_repo
-
-          mkdir -p Archive/CNEMC
-
-          if [ -d "/tmp/cnemc_repo/Archive" ]; then
-            echo "Syncing external Archive -> Archive/CNEMC"
-
-            rsync -av --ignore-existing /tmp/cnemc_repo/Archive/ Archive/CNEMC/
-          else
-            echo "External repo has no Archive folder"
-          fi
-
-      - name: Commit and push changes
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add Archive
 
           if git diff --cached --quiet; then
-            echo "No archive changes to commit."
+            echo "No current archive move changes."
           else
-            git commit -m "Sync CNEMC historical archive"
+            git commit -m "Move current archive folders into CNEMC"
+            git pull --rebase
+            git push
+          fi
+
+      # 第二步：只同步外部 CNEMC 仓库中 2022 年之前的数据
+      - name: Sync external CNEMC archive before 2022
+        run: |
+          set -e
+
+          rm -rf /tmp/cnemc_repo
+          git clone --depth=1 https://github.com/HeQinWill/CNEMC.git /tmp/cnemc_repo
+
+          mkdir -p Archive/CNEMC
+
+          cutoff="2022-01-01"
+
+          shopt -s nullglob
+
+          for d in /tmp/cnemc_repo/Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+            if [ -d "$d" ]; then
+              base=$(basename "$d")
+
+              if [[ "$base" < "$cutoff" ]]; then
+                echo "Syncing $base"
+                mkdir -p "Archive/CNEMC/$base"
+                rsync -a --ignore-existing "$d/" "Archive/CNEMC/$base/"
+              else
+                echo "Skipping $base"
+              fi
+            fi
+          done
+
+      # 再提交第二步
+      - name: Commit external archive before 2022
+        run: |
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add Archive/CNEMC
+
+          if git diff --cached --quiet; then
+            echo "No external archive changes before 2022."
+          else
+            git commit -m "Sync CNEMC archive before 2022"
             git pull --rebase
             git push
           fi
