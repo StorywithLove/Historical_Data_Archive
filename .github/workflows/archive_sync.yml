@@ -1,4 +1,4 @@
-name: Sync Historical Archive Small Batch
+name: Sync Historical Archive 2022
 
 on:
   workflow_dispatch:
@@ -16,46 +16,46 @@ jobs:
         with:
           fetch-depth: 1
 
-      # 第一步：当前仓库已有 Archive 日期文件夹移动到 Archive/CNEMC
-      - name: Move current Archive date folders into Archive/CNEMC
-        run: |
-          set -e
+      # # 第一步：当前仓库已有 Archive 日期文件夹移动到 Archive/CNEMC
+      # - name: Move current Archive date folders into Archive/CNEMC
+      #   run: |
+      #     set -e
 
-          mkdir -p Archive/CNEMC
-          shopt -s nullglob
+      #     mkdir -p Archive/CNEMC
+      #     shopt -s nullglob
 
-          for d in Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
-            if [ -d "$d" ]; then
-              base=$(basename "$d")
-              mkdir -p "Archive/CNEMC/$base"
+      #     for d in Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+      #       if [ -d "$d" ]; then
+      #         base=$(basename "$d")
+      #         mkdir -p "Archive/CNEMC/$base"
 
-              echo "Moving $d -> Archive/CNEMC/$base"
+      #         echo "Moving $d -> Archive/CNEMC/$base"
 
-              rsync -a "$d/" "Archive/CNEMC/$base/"
-              rm -rf "$d"
-            fi
-          done
+      #         rsync -a "$d/" "Archive/CNEMC/$base/"
+      #         rm -rf "$d"
+      #       fi
+      #     done
 
-      # 先提交第一步，避免所有变更堆到最后
-      - name: Commit moved current archive
-        run: |
-          set -e
+      # # 先提交第一步，避免所有变更堆到最后
+      # - name: Commit moved current archive
+      #   run: |
+      #     set -e
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add Archive
+      #     git add Archive
 
-          if git diff --cached --quiet; then
-            echo "No current archive move changes."
-          else
-            git commit -m "Move current archive folders into CNEMC"
-            git pull --rebase
-            git push
-          fi
+      #     if git diff --cached --quiet; then
+      #       echo "No current archive move changes."
+      #     else
+      #       git commit -m "Move current archive folders into CNEMC"
+      #       git pull --rebase
+      #       git push
+      #     fi
 
-      # 第二步：只同步外部 CNEMC 仓库中 2022 年之前的数据
-      - name: Sync external CNEMC archive before 2022
+      # 第二步：只同步外部 CNEMC 仓库中 2022 年全年数据
+      - name: Sync external CNEMC archive for 2022
         run: |
           set -e
 
@@ -64,7 +64,8 @@ jobs:
 
           mkdir -p Archive/CNEMC
 
-          cutoff="2022-01-01"
+          start_date="2022-01-01"
+          end_date="2023-01-01"
 
           shopt -s nullglob
 
@@ -72,7 +73,7 @@ jobs:
             if [ -d "$d" ]; then
               base=$(basename "$d")
 
-              if [[ "$base" < "$cutoff" ]]; then
+              if [[ "$base" >= "$start_date" && "$base" < "$end_date" ]]; then
                 echo "Syncing $base"
                 mkdir -p "Archive/CNEMC/$base"
                 rsync -a --ignore-existing "$d/" "Archive/CNEMC/$base/"
@@ -83,7 +84,7 @@ jobs:
           done
 
       # 再提交第二步
-      - name: Commit external archive before 2022
+      - name: Commit external archive for 2022
         run: |
           set -e
 
@@ -93,9 +94,9 @@ jobs:
           git add Archive/CNEMC
 
           if git diff --cached --quiet; then
-            echo "No external archive changes before 2022."
+            echo "No external archive changes for 2022."
           else
-            git commit -m "Sync CNEMC archive before 2022"
+            git commit -m "Sync CNEMC archive for 2022"
             git pull --rebase
             git push
           fi
