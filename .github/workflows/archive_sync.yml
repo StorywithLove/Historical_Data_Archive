@@ -16,51 +16,50 @@ jobs:
         with:
           fetch-depth: 1
 
-      # # 第一步：当前仓库已有 Archive 日期文件夹移动到 Archive/CNEMC
-      # - name: Move current Archive date folders into Archive/CNEMC
-      #   run: |
-      #     set -e
+      # 第二步：只稀疏下载外部 CNEMC 仓库中 2022 年全年数据
+      - name: Sparse clone external CNEMC archive for 2022
+        run: |
+          set -e
 
-      #     mkdir -p Archive/CNEMC
-      #     shopt -s nullglob
+          start_ts=$(date +%s)
 
-      #     for d in Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
-      #       if [ -d "$d" ]; then
-      #         base=$(basename "$d")
-      #         mkdir -p "Archive/CNEMC/$base"
+          rm -rf /tmp/cnemc_repo
 
-      #         echo "Moving $d -> Archive/CNEMC/$base"
+          echo "Start sparse clone external CNEMC repo, only Archive/2022-*"
 
-      #         rsync -a "$d/" "Archive/CNEMC/$base/"
-      #         rm -rf "$d"
-      #       fi
-      #     done
+          git clone \
+            --depth=1 \
+            --filter=blob:none \
+            --no-checkout \
+            --progress \
+            https://github.com/HeQinWill/CNEMC.git \
+            /tmp/cnemc_repo
 
-      # # 先提交第一步，避免所有变更堆到最后
-      # - name: Commit moved current archive
-      #   run: |
-      #     set -e
+          cd /tmp/cnemc_repo
 
-      #     git config user.name "github-actions[bot]"
-      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+          git sparse-checkout init --no-cone
+          git sparse-checkout set "Archive/2022-*"
 
-      #     git add Archive
+          echo "Start checkout sparse files..."
+          git checkout --progress
 
-      #     if git diff --cached --quiet; then
-      #       echo "No current archive move changes."
-      #     else
-      #       git commit -m "Move current archive folders into CNEMC"
-      #       git pull --rebase
-      #       git push
-      #     fi
+          echo "Sparse checkout finished."
 
-      # 第二步：只同步外部 CNEMC 仓库中 2022 年全年数据
+          echo "External repo size:"
+          du -sh /tmp/cnemc_repo || true
+
+          echo "External Archive/2022-* folder count:"
+          find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "2022-*" | wc -l || true
+
+          end_ts=$(date +%s)
+          echo "Sparse clone external CNEMC finished, cost $((end_ts - start_ts)) seconds."
+
+      # 第三步：同步 2022 年数据，并打印进度
       - name: Sync external CNEMC archive for 2022
         run: |
           set -e
 
-          rm -rf /tmp/cnemc_repo
-          git clone --depth=1 https://github.com/HeQinWill/CNEMC.git /tmp/cnemc_repo
+          start_ts=$(date +%s)
 
           mkdir -p Archive/CNEMC
 
@@ -69,34 +68,64 @@ jobs:
 
           shopt -s nullglob
 
-          for d in /tmp/cnemc_repo/Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
-            if [ -d "$d" ]; then
-              base=$(basename "$d")
+          mapfile -t dirs < <(
+            find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "2022-*" -printf "%f\n" | sort
+          )
 
-              if [[ "$base" >= "$start_date" && "$base" < "$end_date" ]]; then
-                echo "Syncing $base"
-                mkdir -p "Archive/CNEMC/$base"
-                rsync -a --ignore-existing "$d/" "Archive/CNEMC/$base/"
-              else
-                echo "Skipping $base"
-              fi
+          total=${#dirs[@]}
+          echo "Found $total external CNEMC date folders for 2022."
+
+          i=0
+          for base in "${dirs[@]}"; do
+            i=$((i + 1))
+
+            if [[ "$base" >= "$start_date" && "$base" < "$end_date" ]]; then
+              echo "[$i/$total] Syncing $base"
+
+              mkdir -p "Archive/CNEMC/$base"
+
+              rsync -a --ignore-existing \
+                "/tmp/cnemc_repo/Archive/$base/" \
+                "Archive/CNEMC/$base/"
+
+              file_count=$(find "Archive/CNEMC/$base" -type f | wc -l)
+              echo "[$i/$total] Finished $base, local file count: $file_count"
+            else
+              echo "[$i/$total] Skipping $base"
             fi
           done
+
+          echo "Current Archive/CNEMC size:"
+          du -sh Archive/CNEMC || true
+
+          end_ts=$(date +%s)
+          echo "Sync external archive for 2022 finished, cost $((end_ts - start_ts)) seconds."
 
       # 再提交第二步
       - name: Commit external archive for 2022
         run: |
           set -e
 
+          start_ts=$(date +%s)
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add Archive/CNEMC
+
+          echo "Git status summary:"
+          git status --short | head -100
+
+          changed_count=$(git diff --cached --name-only | wc -l)
+          echo "Staged file count: $changed_count"
 
           if git diff --cached --quiet; then
             echo "No external archive changes for 2022."
           else
             git commit -m "Sync CNEMC archive for 2022"
             git pull --rebase
-            git push
+            git push --progress
           fi
+
+          end_ts=$(date +%s)
+          echo "Commit external archive for 2022 finished, cost $((end_ts - start_ts)) seconds."
