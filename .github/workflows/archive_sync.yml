@@ -41,7 +41,12 @@ jobs:
           git sparse-checkout set "Archive/2022-01-*"
 
           echo "Start checkout sparse files..."
+          checkout_start=$(date +%s)
+          
           git checkout --progress
+          
+          checkout_end=$(date +%s)
+          echo "Checkout sparse files finished, cost $((checkout_end - checkout_start)) seconds."
 
           echo "Sparse checkout finished."
 
