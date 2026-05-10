@@ -1,0 +1,70 @@
+name: Sync Historical Archive
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 2 1 * *"   # 每月1日 02:00 UTC 自动执行，可按需开启
+
+permissions:
+  contents: write
+
+jobs:
+  sync-archive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 第一次：整理当前仓库 Archive 下已有日期文件夹到 Archive/CNEMC
+      - name: Move current Archive date folders into Archive/CNEMC
+        run: |
+          mkdir -p Archive/CNEMC
+
+          shopt -s nullglob
+
+          for d in Archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+            if [ -d "$d" ]; then
+              base=$(basename "$d")
+              mkdir -p "Archive/CNEMC/$base"
+
+              echo "Moving $d -> Archive/CNEMC/$base"
+
+              rsync -a "$d/" "Archive/CNEMC/$base/"
+              rm -rf "$d"
+            fi
+          done
+
+      # 第二次：同步其他仓库的 Archive 数据到当前仓库 Archive/CNEMC
+      - name: Sync external CNEMC archive
+        run: |
+          rm -rf /tmp/cnemc_repo
+
+          git clone --depth=1 https://github.com/HeQinWill/CNEMC.git /tmp/cnemc_repo
+
+          mkdir -p Archive/CNEMC
+
+          if [ -d "/tmp/cnemc_repo/Archive" ]; then
+            echo "Syncing external Archive -> Archive/CNEMC"
+
+            rsync -av --ignore-existing /tmp/cnemc_repo/Archive/ Archive/CNEMC/
+          else
+            echo "External repo has no Archive folder"
+          fi
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add Archive
+
+          if git diff --cached --quiet; then
+            echo "No archive changes to commit."
+          else
+            git commit -m "Sync CNEMC historical archive"
+            git pull --rebase
+            git push
+          fi
