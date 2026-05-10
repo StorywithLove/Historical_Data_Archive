@@ -38,7 +38,7 @@ jobs:
           cd /tmp/cnemc_repo
 
           git sparse-checkout init --no-cone
-          git sparse-checkout set "Archive/2022-*"
+          git sparse-checkout set "Archive/2022-01-*"
 
           echo "Start checkout sparse files..."
           git checkout --progress
@@ -64,7 +64,7 @@ jobs:
           mkdir -p Archive/CNEMC
 
           start_date="2022-01-01"
-          end_date="2023-01-01"
+          end_date="2022-02-01"
 
           shopt -s nullglob
 
