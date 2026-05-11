@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       sync_month:
-        description: "Month to sync, format: YYYY-MM, for example 2022-01"
-        required: true
-        default: "2022-01"
+        description: "Month to sync, format: YYYY-MM, default is last month"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -21,160 +21,98 @@ jobs:
         with:
           fetch-depth: 1
 
-      # 第一步：检查输入月份格式，并计算起止日期
       - name: Prepare month parameters
         id: params
         run: |
           set -e
 
-          sync_month="${{ github.event.inputs.sync_month }}"
-
-          echo "Input sync_month: $sync_month"
+          # 默认上个月
+          if [ -z "${{ github.event.inputs.sync_month }}" ]; then
+            sync_month=$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)
+          else
+            sync_month="${{ github.event.inputs.sync_month }}"
+          fi
 
           if [[ ! "$sync_month" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
             echo "Invalid sync_month format: $sync_month"
-            echo "Expected format: YYYY-MM, for example 2022-01"
             exit 1
           fi
 
           start_date="${sync_month}-01"
-          end_date=$(date -u -d "$start_date +1 month" +%Y-%m-%d)
-
-          echo "start_date=$start_date"
-          echo "end_date=$end_date"
+          end_date=$(date -d "$start_date +1 month" +%Y-%m-%d)
 
           echo "sync_month=$sync_month" >> "$GITHUB_OUTPUT"
           echo "start_date=$start_date" >> "$GITHUB_OUTPUT"
           echo "end_date=$end_date" >> "$GITHUB_OUTPUT"
 
-      # 第二步：只稀疏下载外部 CNEMC 仓库中指定月份数据
-      - name: Sparse clone external CNEMC archive
+      - name: Sync CNEMC archive
         run: |
           set -e
-
           sync_month="${{ steps.params.outputs.sync_month }}"
-
-          start_ts=$(date +%s)
-
-          rm -rf /tmp/cnemc_repo
-
-          echo "Start sparse clone external CNEMC repo, only Archive/${sync_month}-*"
-
-          git clone \
-            --depth=1 \
-            --filter=blob:none \
-            --no-checkout \
-            --progress \
-            https://github.com/HeQinWill/CNEMC.git \
-            /tmp/cnemc_repo
-
-          cd /tmp/cnemc_repo
-
-          git sparse-checkout init --no-cone
-          git sparse-checkout set "Archive/${sync_month}-*"
-
-          echo "Start checkout sparse files..."
-          checkout_start=$(date +%s)
-
-          git checkout --progress
-
-          checkout_end=$(date +%s)
-          echo "Checkout sparse files finished, cost $((checkout_end - checkout_start)) seconds."
-
-          echo "Sparse checkout finished."
-
-          echo "External repo size:"
-          du -sh /tmp/cnemc_repo || true
-
-          echo "External Archive/${sync_month}-* folder count:"
-          find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "${sync_month}-*" | wc -l || true
-
-          echo "External Archive/${sync_month}-* file count:"
-          find /tmp/cnemc_repo/Archive -type f -path "*/${sync_month}-*/*" | wc -l || true
-
-          end_ts=$(date +%s)
-          echo "Sparse clone external CNEMC for ${sync_month} finished, cost $((end_ts - start_ts)) seconds."
-
-      # 第三步：同步指定月份数据，并打印进度
-      - name: Sync external CNEMC archive
-        run: |
-          set -e
-
-          sync_month="${{ steps.params.outputs.sync_month }}"
-          start_date="${{ steps.params.outputs.start_date }}"
-          end_date="${{ steps.params.outputs.end_date }}"
-
-          start_ts=$(date +%s)
-
           mkdir -p Archive/CNEMC
 
-          shopt -s nullglob
+          start_ts=$(date +%s)
+          for d in $(seq -w 01 31); do
+            folder="${sync_month}-${d}"
+            mkdir -p "Archive/CNEMC/$folder"
+            downloaded=0
 
-          mapfile -t dirs < <(
-            find /tmp/cnemc_repo/Archive -maxdepth 1 -mindepth 1 -type d -name "${sync_month}-*" -printf "%f\n" | sort
-          )
+            for h in $(seq -w 0 23); do
+              file_name="${folder}T${h}.csv"
+              url="https://raw.githubusercontent.com/StorywithLove/workflow/main/Archive/CNEMC/${file_name}"
 
-          total=${#dirs[@]}
-          echo "Found $total external CNEMC date folders for ${sync_month}."
-
-          if [ "$total" -eq 0 ]; then
-            echo "No external CNEMC folders found for ${sync_month}."
-            exit 0
-          fi
-
-          i=0
-          for base in "${dirs[@]}"; do
-            i=$((i + 1))
-
-            if [[ ! "$base" < "$start_date" && "$base" < "$end_date" ]]; then
-              echo "[$i/$total] Syncing $base"
-
-              mkdir -p "Archive/CNEMC/$base"
-
-              rsync -a --ignore-existing \
-                "/tmp/cnemc_repo/Archive/$base/" \
-                "Archive/CNEMC/$base/"
-
-              file_count=$(find "Archive/CNEMC/$base" -type f | wc -l)
-              echo "[$i/$total] Finished $base, local file count: $file_count"
-            else
-              echo "[$i/$total] Skipping $base"
-            fi
+              if curl --head --silent --fail "$url" >/dev/null; then
+                curl -sS "$url" -o "Archive/CNEMC/$folder/$file_name"
+                downloaded=$((downloaded + 1))
+              else
+                echo "Warning: missing CNEMC file $file_name"
+              fi
+            done
+            echo "Finished $folder, downloaded $downloaded/24 files"
           done
-
-          echo "Current Archive/CNEMC size:"
-          du -sh Archive/CNEMC || true
-
           end_ts=$(date +%s)
-          echo "Sync external archive for ${sync_month} finished, cost $((end_ts - start_ts)) seconds."
+          echo "CNEMC sync finished, cost $((end_ts - start_ts)) seconds."
 
-      # 第四步：提交并推送指定月份数据
+      - name: Sync ZJEMC archive
+        run: |
+          set -e
+          sync_month="${{ steps.params.outputs.sync_month }}"
+          mkdir -p Archive/ZJEMC
+
+          start_ts=$(date +%s)
+          for d in $(seq -w 01 31); do
+            folder="${sync_month}-${d}"
+            mkdir -p "Archive/ZJEMC/$folder"
+            downloaded=0
+
+            for h in $(seq -w 0 23); do
+              file_name="${folder}T${h}.csv"
+              url="https://raw.githubusercontent.com/StorywithLove/workflow/main/Archive/ZJEMC/${file_name}"
+
+              if curl --head --silent --fail "$url" >/dev/null; then
+                curl -sS "$url" -o "Archive/ZJEMC/$folder/$file_name"
+                downloaded=$((downloaded + 1))
+              else
+                echo "Warning: missing ZJEMC file $file_name"
+              fi
+            done
+            echo "Finished $folder, downloaded $downloaded/24 files"
+          done
+          end_ts=$(date +%s)
+          echo "ZJEMC sync finished, cost $((end_ts - start_ts)) seconds."
+
       - name: Commit external archive
         run: |
           set -e
-
-          sync_month="${{ steps.params.outputs.sync_month }}"
-
-          start_ts=$(date +%s)
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add Archive/CNEMC
-
-          echo "Git status summary:"
-          git status --short | head -100
-
-          changed_count=$(git diff --cached --name-only | wc -l)
-          echo "Staged file count: $changed_count"
+          git add Archive/CNEMC Archive/ZJEMC
 
           if git diff --cached --quiet; then
-            echo "No external archive changes for ${sync_month}."
+            echo "No changes to commit."
           else
-            git commit -m "Sync CNEMC archive for ${sync_month}"
+            git commit -m "Sync CNEMC & ZJEMC archives for ${{ steps.params.outputs.sync_month }}"
             git pull --rebase
             git push --progress
           fi
-
-          end_ts=$(date +%s)
-          echo "Commit external archive for ${sync_month} finished, cost $((end_ts - start_ts)) seconds."
