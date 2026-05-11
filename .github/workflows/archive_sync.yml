@@ -123,3 +123,4 @@ jobs:
             git commit -m "Sync CNEMC & ZJEMC archives for ${{ steps.params.outputs.sync_month }}"
             git pull --rebase
             git push --progress
+          fi
