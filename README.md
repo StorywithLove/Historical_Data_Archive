@@ -14,9 +14,9 @@
 
 ## 🗂️ Archive Structure
 
-- Data is organized by **source** and **date**. source contains CNEMC and ZJEMC
+- Data is organized by **source** and **date**. **source** contains CNEMC, ZJEMC, ... etc.
 
-- Each day has **one folder**, ideally containing **24 hourly CSV files**
+- Each day has **one folder**, ideally containing **24 hourly CSV files**.
 ```
 Archive/  
   CNEMC/  
@@ -53,7 +53,7 @@ Archive/
 | Source repo               | [StorywithLove/workflow](https://github.com/StorywithLove/workflow) |
 | Sync frequency            | Monthly (1st day of month, 09:00 AM)         |
 | Default sync data         | Previous month's historical data              |
-| Folder structure          | Archive/<Source>/<YYYY-MM-DD>/<Hourly CSV>   |
+| Folder structure          | `Archive/<Source>/<YYYY-MM-DD>/<Hourly CSV>` |
 | Missing files handling    | Skipped, with warnings                        |
 
 ---
