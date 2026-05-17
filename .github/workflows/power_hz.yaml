@@ -11,8 +11,8 @@ on:
         description: "End date, YYYY-MM-DD. Leave empty to run only start_date/today."
         required: false
         type: string
-  schedule:
-    - cron: "10 23 * * *"
+  # schedule:
+  #   - cron: "10 23 * * *"
 
 permissions:
   contents: write
@@ -31,7 +31,13 @@ jobs:
       # 1. 拉代码
       - name: Checkout repo
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            src
+            Archive/PVPower
+          sparse-checkout-cone-mode: true
+          
       # 2. 安装 Python
       - name: Setup Python
         uses: actions/setup-python@v5
