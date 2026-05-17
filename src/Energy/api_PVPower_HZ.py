@@ -13,8 +13,12 @@ import requests
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = next((path for path in [SCRIPT_DIR, *SCRIPT_DIR.parents] if (path / ".github").exists()), SCRIPT_DIR)
+PROJECT_DIR = Path(os.getenv("GITHUB_WORKSPACE", "")).resolve() if os.getenv("GITHUB_WORKSPACE") else next(
+    (path for path in [SCRIPT_DIR, *SCRIPT_DIR.parents] if (path / ".git").exists() or (path / ".github").exists()),
+    SCRIPT_DIR
+)
 DATA_DIR = PROJECT_DIR / "Archive" / "PVPower"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
 
 STATIONS = [
