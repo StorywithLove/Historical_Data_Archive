@@ -112,41 +112,39 @@ jobs:
       - name: Sync PVPower archive
         run: |
           set -e
-  
+
           sync_month="${{ steps.params.outputs.sync_month }}"
-          mkdir -p Archive/PVPower
-  
+          mkdir -p "Archive/PVPower/${sync_month}"
+
           tmp_dir="/tmp/pvpower_repo"
           rm -rf "$tmp_dir"
-  
+
           git clone --depth=1 --filter=blob:none --no-checkout https://github.com/StorywithLove/workflow.git "$tmp_dir"
           cd "$tmp_dir"
           git sparse-checkout init --no-cone
-          git sparse-checkout set "Archive/PVPower/HZ_${sync_month}-*.csv"
+          git sparse-checkout set "Archive/PVPower/${sync_month}/HZ_${sync_month}-*.csv"
           git checkout --progress
           cd -
-  
-          if [ ! -d "$tmp_dir/Archive/PVPower" ]; then
-            echo "No PVPower directory found for $sync_month."
+
+          if [ ! -d "$tmp_dir/Archive/PVPower/${sync_month}" ]; then
+            echo "No PVPower month directory found for $sync_month."
             exit 0
           fi
-  
-          mapfile -t files < <(find "$tmp_dir/Archive/PVPower" -maxdepth 1 -type f -name "HZ_${sync_month}-*.csv" -printf "%f\n" | sort)
-          total=${#files[@]}
-          echo "Found $total PVPower files for $sync_month."
-  
-          i=0
-          for base in "${files[@]}"; do
-            i=$((i+1))
-            echo "[$i/$total] Syncing PVPower/$base"
-  
-            if [ -f "Archive/PVPower/$base" ]; then
-              echo "[$i/$total] Skip existing PVPower/$base"
-            else
-              cp "$tmp_dir/Archive/PVPower/$base" "Archive/PVPower/$base"
-              echo "[$i/$total] Copied PVPower/$base"
-            fi
-          done
+
+          file_count=$(find "$tmp_dir/Archive/PVPower/${sync_month}" -maxdepth 1 -type f -name "HZ_${sync_month}-*.csv" | wc -l)
+          echo "Found $file_count PVPower files for $sync_month."
+
+          if [ "$file_count" -eq 0 ]; then
+            echo "No PVPower files to sync for $sync_month."
+            exit 0
+          fi
+
+          rsync -a --ignore-existing \
+            "$tmp_dir/Archive/PVPower/${sync_month}/" \
+            "Archive/PVPower/${sync_month}/"
+
+          local_count=$(find "Archive/PVPower/${sync_month}" -maxdepth 1 -type f -name "HZ_${sync_month}-*.csv" | wc -l)
+          echo "Finished PVPower sync for $sync_month, local file count: $local_count"
           
       # 第三步：提交并推送
       - name: Commit external archive
