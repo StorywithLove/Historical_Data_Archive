@@ -46,7 +46,7 @@ jobs:
           echo "start_date=$start_date" >> "$GITHUB_OUTPUT"
           echo "end_date=$end_date" >> "$GITHUB_OUTPUT"
 
-      # 第二步：同步 CNEMC 指定月份的日期文件夹
+      # 第二步：（1）同步 CNEMC 指定月份的日期文件夹
       - name: Sync CNEMC archive
         run: |
           set -e
@@ -77,7 +77,7 @@ jobs:
             echo "[$i/$total] Finished $base, local file count: $file_count"
           done
 
-      # 第三步：同步 ZJEMC 指定月份的日期文件夹
+      # 第二步：（2）同步 ZJEMC 指定月份的日期文件夹
       - name: Sync ZJEMC archive
         run: |
           set -e
@@ -107,20 +107,60 @@ jobs:
             file_count=$(find "Archive/ZJEMC/$base" -type f | wc -l)
             echo "[$i/$total] Finished $base, local file count: $file_count"
           done
-
-      # 第四步：提交并推送
+          
+      # 第二步：（3）同步 PVPower 指定月份的每日文件
+      - name: Sync PVPower archive
+        run: |
+          set -e
+  
+          sync_month="${{ steps.params.outputs.sync_month }}"
+          mkdir -p Archive/PVPower
+  
+          tmp_dir="/tmp/pvpower_repo"
+          rm -rf "$tmp_dir"
+  
+          git clone --depth=1 --filter=blob:none --no-checkout https://github.com/StorywithLove/workflow.git "$tmp_dir"
+          cd "$tmp_dir"
+          git sparse-checkout init --no-cone
+          git sparse-checkout set "Archive/PVPower/HZ_${sync_month}-*.csv"
+          git checkout --progress
+          cd -
+  
+          if [ ! -d "$tmp_dir/Archive/PVPower" ]; then
+            echo "No PVPower directory found for $sync_month."
+            exit 0
+          fi
+  
+          mapfile -t files < <(find "$tmp_dir/Archive/PVPower" -maxdepth 1 -type f -name "HZ_${sync_month}-*.csv" -printf "%f\n" | sort)
+          total=${#files[@]}
+          echo "Found $total PVPower files for $sync_month."
+  
+          i=0
+          for base in "${files[@]}"; do
+            i=$((i+1))
+            echo "[$i/$total] Syncing PVPower/$base"
+  
+            if [ -f "Archive/PVPower/$base" ]; then
+              echo "[$i/$total] Skip existing PVPower/$base"
+            else
+              cp "$tmp_dir/Archive/PVPower/$base" "Archive/PVPower/$base"
+              echo "[$i/$total] Copied PVPower/$base"
+            fi
+          done
+          
+      # 第三步：提交并推送
       - name: Commit external archive
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add Archive/CNEMC Archive/ZJEMC
+          git add Archive/CNEMC Archive/ZJEMC Archive/PVPower
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Sync CNEMC & ZJEMC archives for ${{ steps.params.outputs.sync_month }}"
+            git commit -m "Sync CNEMC & ZJEMC & PVPower archives for ${{ steps.params.outputs.sync_month }}"
             git pull --rebase
             git push --progress
           fi
