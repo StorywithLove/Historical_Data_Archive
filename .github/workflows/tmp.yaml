@@ -1,0 +1,96 @@
+name: Reorganize PVPower Archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reorganize-pvpower-archive
+  cancel-in-progress: false
+
+jobs:
+  reorganize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reorganize PVPower files by month
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== Reorganizing Archive/PVPower files ==="
+
+          PV_DIR="Archive/PVPower"
+
+          if [ ! -d "$PV_DIR" ]; then
+            echo "Directory not found: $PV_DIR"
+            exit 0
+          fi
+
+          shopt -s nullglob
+
+          moved_count=0
+          skipped_count=0
+
+          for file in "$PV_DIR"/HZ_*.csv; do
+            [ -f "$file" ] || continue
+
+            filename=$(basename "$file")
+
+            # 匹配 HZ_YYYY-MM-DD.csv
+            if [[ "$filename" =~ ^HZ_([0-9]{4})-([0-9]{2})-[0-9]{2}\.csv$ ]]; then
+              year="${BASH_REMATCH[1]}"
+              month="${BASH_REMATCH[2]}"
+              month_dir="$PV_DIR/${year}-${month}"
+
+              mkdir -p "$month_dir"
+
+              target="$month_dir/$filename"
+
+              if [ -e "$target" ]; then
+                echo "Target already exists, skip: $target"
+                skipped_count=$((skipped_count + 1))
+              else
+                echo "Moving $file -> $target"
+                mv "$file" "$target"
+                moved_count=$((moved_count + 1))
+              fi
+            else
+              echo "Skip unmatched file: $filename"
+              skipped_count=$((skipped_count + 1))
+            fi
+          done
+
+          echo "=== Summary ==="
+          echo "Moved files: $moved_count"
+          echo "Skipped files: $skipped_count"
+
+          echo "=== Current PVPower structure ==="
+          find "$PV_DIR" -maxdepth 2 -type f | sort | head -100
+
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -A Archive/PVPower
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Reorganize PVPower archive by month"
+
+          git pull --rebase origin main
+          git push origin HEAD:main
